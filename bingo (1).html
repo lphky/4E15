@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>開口中 - 終極炸彈數字 Party Game</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Canvas Confetti CDN for explosion effects -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+
+        body {
+            font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+            background: radial-gradient(circle at center, #1b0c2e 0%, #08030f 100%);
+            min-height: 100vh;
+            color: #f3f4f6;
+            overflow-x: hidden;
+        }
+
+        /* Glassmorphism card utility */
+        .glass-panel {
+            background: rgba(22, 13, 38, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .glass-button {
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .glass-button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.18);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(236, 72, 153, 0.3);
+        }
+
+        .glass-button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        /* Pulsating glowing animation for bomb / active states */
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow: 0 0 15px rgba(239, 68, 68, 0.4), inset 0 0 15px rgba(239, 68, 68, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 35px rgba(239, 68, 68, 0.8), inset 0 0 25px rgba(239, 68, 68, 0.5);
+            }
+        }
+
+        .glow-bomb {
+            animation: pulse-glow 2s infinite;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            10% { transform: translate(-10px, -10px) rotate(-2deg); }
+            20% { transform: translate(10px, 8px) rotate(2deg); }
+            30% { transform: translate(-12px, 6px) rotate(-1deg); }
+            40% { transform: translate(12px, -8px) rotate(3deg); }
+            50% { transform: translate(-8px, 10px) rotate(-2deg); }
+            60% { transform: translate(10px, -6px) rotate(1deg); }
+            70% { transform: translate(-6px, 8px) rotate(-3deg); }
+            80% { transform: translate(8px, -10px) rotate(2deg); }
+            90% { transform: translate(-4px, 4px) rotate(-1deg); }
+        }
+
+        .shake-screen {
+            animation: shake 0.6s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        /* Custom Scrollbar for history */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 8, 28, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(139, 92, 246, 0.4);
+            border-radius: 999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(139, 92, 246, 0.8);
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen justify-between relative overflow-x-hidden antialiased selection:bg-pink-500 selection:text-white">
+
+    <!-- Top Bar Navigation & Sound Controls -->
+    <header class="w-full max-w-5xl mx-auto px-4 pt-6 pb-2 flex justify-between items-center z-20">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 p-[2px] shadow-lg shadow-rose-500/20">
+                <div class="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                    <i data-lucide="bomb" class="w-5 h-5 text-rose-500 animate-bounce"></i>
+                </div>
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-fuchsia-300 to-amber-300">
+                    開口中 <span class="text-xs px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">Party Bomb</span>
+                </h1>
+                <p class="text-xs text-slate-400 font-medium">範圍：<span id="range-limit-text">0 - 200</span></p>
+            </div>
+        </div>
+
+        <!-- Action buttons (Rules, Audio toggle, Restart) -->
+        <div class="flex items-center space-x-2">
+            <button id="btn-sound" onclick="toggleSound()" class="glass-button p-2.5 rounded-xl text-slate-300 hover:text-amber-300" title="切換音效">
+                <i id="icon-sound" data-lucide="volume-2" class="w-5 h-5"></i>
+            </button>
+            <button onclick="openRulesModal()" class="glass-button p-2.5 rounded-xl text-slate-300 hover:text-cyan-300" title="遊戲規則">
+                <i data-lucide="help-circle" class="w-5 h-5"></i>
+            </button>
+            <button onclick="restartGame()" class="glass-button px-3 py-2 rounded-xl text-slate-200 hover:text-emerald-400 text-sm font-bold flex items-center space-x-1.5">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                <span class="hidden sm:inline">重新開始</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Interactive Container -->
+    <main class="w-full max-w-5xl mx-auto px-4 py-4 flex-1 flex flex-col justify-center z-10">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            <!-- Left Side: Main Arena (Range + Active Player + Input Keypad) -->
+            <div class="lg:col-span-7 flex flex-col space-y-6">
+                
+                <!-- Current Range Display Box -->
+                <div class="glass-panel rounded-3xl p-6 sm:p-8 text-center relative overflow-hidden glow-bomb border-rose-500/30">
+                    <!-- Subtle background particle effect -->
+                    <div class="absolute -right-10 -bottom-10 w-40 h-40 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div class="absolute -left-10 -top-10 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                    <!-- Turn indicator badge -->
+                    <div class="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-sm font-bold mb-4 shadow-lg">
+                        <i data-lucide="user" class="w-4 h-4 text-amber-400"></i>
+                        <span>當前輪到：<span id="current-player-display" class="text-white underline decoration-amber-400 decoration-2">玩家 1</span></span>
+                    </div>
+
+                    <!-- Current Safe Range display -->
+                    <div class="my-2">
+                        <p class="text-xs uppercase tracking-widest text-slate-400 font-bold mb-1">當前安全範圍</p>
+                        <div class="flex items-center justify-center space-x-3 sm:space-x-6 text-4xl sm:text-6xl font-black text-white tracking-tight">
+                            <span id="min-val" class="text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">0</span>
+                            <span class="text-rose-500 font-light text-3xl sm:text-5xl">&lt;</span>
+                            <span class="text-amber-300 animate-pulse text-2xl sm:text-4xl">?</span>
+                            <span class="text-rose-500 font-light text-3xl sm:text-5xl">&lt;</span>
+                            <span id="max-val" class="text-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]">200</span>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Visual Range Bar -->
+                    <div class="mt-6 w-full">
+                        <div class="flex justify-between text-xs font-semibold text-slate-400 mb-1.5 px-1">
+                            <span>0 (起點)</span>
+                            <span id="range-percent-label" class="text-amber-400 font-mono">剩餘範圍 100%</span>
+                            <span>200 (終點)</span>
+                        </div>
+                        <div class="w-full h-4 bg-slate-900/80 rounded-full overflow-hidden p-0.5 border border-slate-700/50 relative shadow-inner">
+                            <div id="range-visualizer" class="h-full bg-gradient-to-r from-emerald-500 via-amber-400 to-cyan-500 rounded-full transition-all duration-500 ease-out" style="margin-left: 0%; width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Guess Input & Keypad Panel -->
+                <div class="glass-panel rounded-3xl p-6 flex flex-col space-y-4">
+                    <form id="guess-form" onsubmit="handleGuessSubmit(event)" class="flex flex-col sm:flex-row gap-3">
+                        <div class="relative flex-1">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                                <i data-lucide="target" class="w-5 h-5 text-rose-400"></i>
+                            </div>
+                            <input type="number" id="guess-input" min="1" max="199" placeholder="輸入預測數字..." autocomplete="off" required
+                                class="w-full pl-12 pr-4 py-3.5 bg-slate-900/80 border border-slate-700 rounded-2xl text-xl font-bold text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 transition-all">
+                        </div>
+                        <button type="submit" class="px-8 py-3.5 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-extrabold text-lg shadow-lg shadow-rose-500/30 active:scale-95 transition-all flex items-center justify-center space-x-2">
+                            <span>猜測！</span>
+                            <i data-lucide="zap" class="w-5 h-5 fill-current"></i>
+                        </button>
+                    </form>
+
+                    <!-- Quick Helper Bar (Random & Step buttons) -->
+                    <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                        <span class="text-xs text-slate-400 font-semibold flex items-center">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5 mr-1 text-amber-400"></i> 快速輔助:
+                        </span>
+                        <div class="flex items-center gap-2">
+                            <button onclick="quickRandomGuess()" type="button" class="glass-button px-3 py-1.5 rounded-xl text-xs font-bold text-amber-300 hover:bg-amber-500/20 flex items-center space-x-1">
+                                <i data-lucide="dice-5" class="w-3.5 h-3.5"></i>
+                                <span>隨機選號</span>
+                            </button>
+                            <button onclick="quickMidpointGuess()" type="button" class="glass-button px-3 py-1.5 rounded-xl text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 flex items-center space-x-1">
+                                <i data-lucide="divide" class="w-3.5 h-3.5"></i>
+                                <span>取中間值</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Side: Player Roster & Turn History -->
+            <div class="lg:col-span-5 flex flex-col space-y-6">
+                
+                <!-- Player Management Panel -->
+                <div class="glass-panel rounded-3xl p-5 flex flex-col space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="users" class="w-5 h-5 text-purple-400"></i>
+                            <h3 class="font-bold text-slate-200">玩家名單 (<span id="player-count-num">2</span>)</h3>
+                        </div>
+                        <button onclick="openAddPlayerModal()" class="text-xs px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 flex items-center space-x-1 transition-all">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                            <span>新增玩家</span>
+                        </button>
+                    </div>
+
+                    <!-- Player list container -->
+                    <div id="players-list-container" class="flex flex-wrap gap-2 max-h-28 overflow-y-auto pr-1">
+                        <!-- Dynamically generated player badges -->
+                    </div>
+                </div>
+
+                <!-- History Log Timeline Panel -->
+                <div class="glass-panel rounded-3xl p-5 flex flex-col space-y-3 flex-1 min-h-[260px] max-h-[380px]">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="history" class="w-5 h-5 text-amber-400"></i>
+                            <h3 class="font-bold text-slate-200">對局紀錄</h3>
+                        </div>
+                        <span id="history-counter" class="text-xs text-slate-400 font-mono">0 回合</span>
+                    </div>
+
+                    <!-- Timeline items list -->
+                    <div id="history-list" class="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                        <div id="empty-history" class="h-full flex flex-col items-center justify-center text-slate-500 py-8">
+                            <i data-lucide="ghost" class="w-10 h-10 mb-2 stroke-1 opacity-50"></i>
+                            <p class="text-xs">尚無任何猜測紀錄，開始遊戲吧！</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full max-w-5xl mx-auto px-4 py-4 text-center text-xs text-slate-500 z-10">
+        <p>開口中 (Bingo / Bomb Number) &copy; 派對必備經典遊戲 • 範圍 0 ~ 200</p>
+    </footer>
+
+    <!-- Game Over / Boom Modal -->
+    <div id="boom-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden transition-opacity duration-300">
+        <div class="glass-panel max-w-md w-full rounded-3xl p-8 text-center border-2 border-rose-500/50 shadow-[0_0_80px_rgba(244,63,94,0.4)] transform scale-95 transition-all duration-300 relative overflow-hidden">
+            <div class="absolute -right-20 -top-20 w-48 h-48 bg-rose-600/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="w-20 h-20 mx-auto rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center mb-4 text-rose-500 animate-bounce">
+                <i data-lucide="bomb" class="w-10 h-10"></i>
+            </div>
+
+            <h2 class="text-3xl font-black text-rose-500 mb-1 tracking-tight">💥 踩中中彈！BINGO！</h2>
+            <p class="text-slate-300 text-sm mb-6">不幸踩中炸彈數字！派對懲罰時間！</p>
+
+            <div class="bg-slate-900/90 rounded-2xl p-4 mb-6 border border-slate-800">
+                <p class="text-xs text-slate-400 mb-1">受害者 / 踩中者</p>
+                <p id="loser-name-display" class="text-2xl font-black text-amber-400 mb-2">玩家 1</p>
+                <div class="inline-block px-4 py-1.5 rounded-full bg-rose-500/20 text-rose-300 text-xs font-mono font-bold border border-rose-500/30">
+                    炸彈數字：<span id="bomb-number-display" class="text-base text-white">123</span>
+                </div>
+            </div>
+
+            <button onclick="restartGame(); closeBoomModal();" class="w-full py-4 rounded-2xl bg-gradient-to-r from-rose-500 via-purple-600 to-amber-500 text-white font-black text-lg shadow-lg shadow-rose-500/30 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center space-x-2">
+                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                <span>再玩一局！</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Rules Modal -->
+    <div id="rules-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-md w-full rounded-3xl p-6 border border-slate-700/50 relative">
+            <button onclick="closeRulesModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div class="flex items-center space-x-2 text-amber-400 mb-4">
+                <i data-lucide="book-open" class="w-6 h-6"></i>
+                <h3 class="text-xl font-bold">遊戲規則說明</h3>
+            </div>
+            <div class="space-y-3 text-sm text-slate-300">
+                <p class="flex items-start">
+                    <span class="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded mr-2 text-xs mt-0.5">1</span>
+                    系統會在 <strong class="text-white mx-1">0 到 200</strong> 之間隨機隱藏一個「爆炸數字」。
+                </p>
+                <p class="flex items-start">
+                    <span class="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded mr-2 text-xs mt-0.5">2</span>
+                    玩家輪流輸入介於當前安全範圍內的整數數字 (不包含邊界數字)。
+                </p>
+                <p class="flex items-start">
+                    <span class="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded mr-2 text-xs mt-0.5">3</span>
+                    若輸入數字不是炸彈，安全範圍將會縮小，換下一位玩家猜測。
+                </p>
+                <p class="flex items-start">
+                    <span class="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded mr-2 text-xs mt-0.5">4</span>
+                    輸入到隱藏炸彈數字者即為<strong class="text-rose-400 mx-1">「開口中」中彈輸家</strong>，遊戲結束！
+                </p>
+            </div>
+            <button onclick="closeRulesModal()" class="mt-6 w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold transition-all">
+                我知道了
+            </button>
+        </div>
+    </div>
+
+    <!-- Add Player Modal -->
+    <div id="add-player-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-sm w-full rounded-3xl p-6 border border-slate-700/50 relative">
+            <button onclick="closeAddPlayerModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center space-x-2">
+                <i data-lucide="user-plus" class="w-5 h-5 text-purple-400"></i>
+                <span>新增玩家名稱</span>
+            </h3>
+            <input type="text" id="new-player-name" placeholder="例如: 小明 / Player 3" max="10"
+                class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 mb-4 focus:outline-none focus:border-purple-500">
+            <div class="flex space-x-2">
+                <button onclick="closeAddPlayerModal()" class="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold">取消</button>
+                <button onclick="confirmAddPlayer()" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold">加入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Banner -->
+    <div id="toast-notification" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 px-5 py-3 rounded-2xl glass-panel border border-rose-500/40 text-white font-bold text-sm shadow-xl z-50 opacity-0 pointer-events-none transition-all duration-300 flex items-center space-x-2">
+        <i id="toast-icon" data-lucide="alert-circle" class="w-5 h-5 text-rose-400"></i>
+        <span id="toast-msg">提示訊息</span>
+    </div>
+
+    <script>
+        /* ==================== GAME STATE VARIABLES ==================== */
+        const MIN_INITIAL = 0;
+        const MAX_INITIAL = 200;
+
+        let currentMin = MIN_INITIAL;
+        let currentMax = MAX_INITIAL;
+        let bombNumber = 0;
+        let soundEnabled = true;
+        let isGameOver = false;
+
+        let players = ["玩家 1", "玩家 2"];
+        let currentPlayerIndex = 0;
+        let historyLog = [];
+
+        /* ==================== WEB AUDIO API SYNTHESIZER ==================== */
+        let audioCtx = null;
+
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    audioCtx = new AudioContext();
+                }
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        function playSafeSound() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+                osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            } catch (e) {
+                console.warn("Audio playback failed", e);
+            }
+        }
+
+        function playErrorSound() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, ctx.currentTime);
+                osc.frequency.setValueAtTime(110, ctx.currentTime + 0.1);
+
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start();
+                osc.stop(ctx.currentTime + 0.25);
+            } catch (e) {
+                console.warn("Audio error sound failed", e);
+            }
+        }
+
+        function playExplosionSound() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+
+                // Noise buffer for explosion
+                const bufferSize = ctx.sampleRate * 1.2;
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, ctx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 1.0);
+
+                const gain = ctx.createGain();
+                gain.gain.setValueAtTime(0.6, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.1);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(ctx.destination);
+
+                noise.start();
+                noise.stop(ctx.currentTime + 1.1);
+            } catch (e) {
+                console.warn("Explosion sound failed", e);
+            }
+        }
+
+        /* ==================== INITIALIZATION ==================== */
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            restartGame();
+        });
+
+        function restartGame() {
+            currentMin = MIN_INITIAL;
+            currentMax = MAX_INITIAL;
+            // Generate secret bomb number randomly between 1 and 199 (inclusive of typical playable integers)
+            bombNumber = Math.floor(Math.random() * (MAX_INITIAL - MIN_INITIAL - 1)) + MIN_INITIAL + 1;
+            isGameOver = false;
+            currentPlayerIndex = 0;
+            historyLog = [];
+
+            updateUI();
+            renderPlayers();
+            renderHistory();
+
+            const inputEl = document.getElementById('guess-input');
+            if (inputEl) {
+                inputEl.value = '';
+                inputEl.min = currentMin + 1;
+                inputEl.max = currentMax - 1;
+                inputEl.placeholder = `請輸入 (${currentMin + 1} ~ ${currentMax - 1})`;
+                inputEl.focus();
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('min-val').innerText = currentMin;
+            document.getElementById('max-val').innerText = currentMax;
+            document.getElementById('current-player-display').innerText = players[currentPlayerIndex] || "玩家 1";
+
+            const inputEl = document.getElementById('guess-input');
+            if (inputEl) {
+                inputEl.min = currentMin + 1;
+                inputEl.max = currentMax - 1;
+                inputEl.placeholder = `請輸入 (${currentMin + 1} ~ ${currentMax - 1})`;
+            }
+
+            // Update Visual Range Slider Bar
+            const totalRange = MAX_INITIAL - MIN_INITIAL;
+            const activeSpan = currentMax - currentMin;
+            const leftPercent = (currentMin / totalRange) * 100;
+            const widthPercent = (activeSpan / totalRange) * 100;
+            const rangePercentLabel = Math.round((activeSpan / totalRange) * 100);
+
+            const visualizer = document.getElementById('range-visualizer');
+            if (visualizer) {
+                visualizer.style.marginLeft = `${leftPercent}%`;
+                visualizer.style.width = `${widthPercent}%`;
+            }
+            document.getElementById('range-percent-label').innerText = `剩餘範圍 ${rangePercentLabel}% (${activeSpan})`;
+        }
+
+        function renderPlayers() {
+            const container = document.getElementById('players-list-container');
+            document.getElementById('player-count-num').innerText = players.length;
+            container.innerHTML = '';
+
+            players.forEach((player, idx) => {
+                const isActive = idx === currentPlayerIndex;
+                const badge = document.createElement('div');
+                badge.className = `inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                    isActive 
+                    ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-lg shadow-amber-500/20 ring-1 ring-amber-400' 
+                    : 'bg-slate-900/60 border-slate-700/60 text-slate-400'
+                }`;
+                
+                badge.innerHTML = `
+                    <span class="w-2 h-2 rounded-full ${isActive ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}"></span>
+                    <span>${escapeHTML(player)}</span>
+                    ${players.length > 2 ? `<button onclick="removePlayer(${idx})" class="ml-1 text-slate-500 hover:text-rose-400"><i data-lucide="x" class="w-3 h-3"></i></button>` : ''}
+                `;
+                container.appendChild(badge);
+            });
+            lucide.createIcons();
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-list');
+            const counter = document.getElementById('history-counter');
+            counter.innerText = `${historyLog.length} 回合`;
+
+            if (historyLog.length === 0) {
+                container.innerHTML = `
+                    <div id="empty-history" class="h-full flex flex-col items-center justify-center text-slate-500 py-8">
+                        <i data-lucide="ghost" class="w-10 h-10 mb-2 stroke-1 opacity-50"></i>
+                        <p class="text-xs">尚無任何猜測紀錄，開始遊戲吧！</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = '';
+            // Render most recent on top
+            [...historyLog].reverse().forEach((item) => {
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-2xl border flex items-center justify-between text-xs transition-all ${
+                    item.isHit 
+                    ? 'bg-rose-950/40 border-rose-500/50 text-rose-200' 
+                    : 'bg-slate-900/60 border-slate-800 text-slate-300'
+                }`;
+
+                card.innerHTML = `
+                    <div class="flex items-center space-x-2.5">
+                        <span class="px-2 py-0.5 rounded-lg bg-slate-800 text-amber-300 font-bold border border-slate-700">
+                            ${escapeHTML(item.player)}
+                        </span>
+                        <span class="font-mono text-sm font-black text-white">猜測：${item.guess}</span>
+                    </div>
+                    <div>
+                        ${item.isHit 
+                            ? `<span class="px-2 py-0.5 rounded-md bg-rose-500 text-white font-extrabold flex items-center space-x-1"><i data-lucide="bomb" class="w-3 h-3"></i><span>BOOM</span></span>`
+                            : `<span class="font-mono text-slate-400">範圍 ➜ <strong class="text-emerald-400">${item.newMin}</strong> ~ <strong class="text-cyan-400">${item.newMax}</strong></span>`
+                        }
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function handleGuessSubmit(e) {
+            e.preventDefault();
+            if (isGameOver) return;
+
+            const inputEl = document.getElementById('guess-input');
+            const guess = parseInt(inputEl.value);
+
+            // Validate Guess
+            if (isNaN(guess) || guess <= currentMin || guess >= currentMax) {
+                playErrorSound();
+                showToast(`❌ 請輸入介於 ${currentMin + 1} 與 ${currentMax - 1} 之間的數字！`);
+                return;
+            }
+
+            const activePlayer = players[currentPlayerIndex];
+
+            // Check if Hit Secret Bomb
+            if (guess === bombNumber) {
+                isGameOver = true;
+                playExplosionSound();
+                triggerExplosionAnimation();
+
+                historyLog.push({
+                    player: activePlayer,
+                    guess: guess,
+                    isHit: true
+                });
+                renderHistory();
+
+                // Show Game Over Modal
+                document.getElementById('loser-name-display').innerText = activePlayer;
+                document.getElementById('bomb-number-display').innerText = bombNumber;
+                
+                // Add screen shake effect
+                document.body.classList.add('shake-screen');
+                setTimeout(() => {
+                    document.body.classList.remove('shake-screen');
+                }, 600);
+
+                openBoomModal();
+            } else {
+                // Safe Guess - shrink range
+                playSafeSound();
+                if (guess < bombNumber) {
+                    currentMin = guess;
+                } else {
+                    currentMax = guess;
+                }
+
+                historyLog.push({
+                    player: activePlayer,
+                    guess: guess,
+                    isHit: false,
+                    newMin: currentMin,
+                    newMax: currentMax
+                });
+
+                // Advance turn to next player
+                currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+
+                updateUI();
+                renderPlayers();
+                renderHistory();
+
+                inputEl.value = '';
+                inputEl.focus();
+            }
+        }
+
+        function quickRandomGuess() {
+            if (isGameOver) return;
+            const possibleSpan = currentMax - currentMin - 1;
+            if (possibleSpan <= 0) return;
+            const randomChoice = Math.floor(Math.random() * possibleSpan) + currentMin + 1;
+            const inputEl = document.getElementById('guess-input');
+            inputEl.value = randomChoice;
+            inputEl.focus();
+        }
+
+        function quickMidpointGuess() {
+            if (isGameOver) return;
+            const mid = Math.floor((currentMin + currentMax) / 2);
+            if (mid > currentMin && mid < currentMax) {
+                const inputEl = document.getElementById('guess-input');
+                inputEl.value = mid;
+                inputEl.focus();
+            }
+        }
+
+        function triggerExplosionAnimation() {
+            if (typeof confetti === 'function') {
+                confetti({
+                    particleCount: 120,
+                    spread: 80,
+                    origin: { y: 0.6 },
+                    colors: ['#ef4444', '#f59e0b', '#ec4899', '#8b5cf6']
+                });
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const icon = document.getElementById('icon-sound');
+            if (soundEnabled) {
+                icon.setAttribute('data-lucide', 'volume-2');
+                showToast("🔊 音效已開啟");
+            } else {
+                icon.setAttribute('data-lucide', 'volume-x');
+                showToast("🔇 音效已靜音");
+            }
+            lucide.createIcons();
+        }
+
+        function openBoomModal() {
+            const modal = document.getElementById('boom-modal');
+            modal.classList.remove('hidden');
+        }
+
+        function closeBoomModal() {
+            const modal = document.getElementById('boom-modal');
+            modal.classList.add('hidden');
+        }
+
+        function openRulesModal() {
+            document.getElementById('rules-modal').classList.remove('hidden');
+        }
+
+        function closeRulesModal() {
+            document.getElementById('rules-modal').classList.add('hidden');
+        }
+
+        function openAddPlayerModal() {
+            document.getElementById('add-player-modal').classList.remove('hidden');
+            document.getElementById('new-player-name').focus();
+        }
+
+        function closeAddPlayerModal() {
+            document.getElementById('add-player-modal').classList.add('hidden');
+            document.getElementById('new-player-name').value = '';
+        }
+
+        function confirmAddPlayer() {
+            const nameInput = document.getElementById('new-player-name');
+            const name = nameInput.value.trim();
+            if (name) {
+                players.push(name);
+                renderPlayers();
+                closeAddPlayerModal();
+                showToast(`已加入玩家：${name}`);
+            }
+        }
+
+        function removePlayer(idx) {
+            if (players.length <= 2) {
+                showToast("至少需保留 2 位玩家！");
+                return;
+            }
+            const removed = players.splice(idx, 1);
+            if (currentPlayerIndex >= players.length) {
+                currentPlayerIndex = 0;
+            }
+            renderPlayers();
+            updateUI();
+            showToast(`已移除玩家：${removed[0]}`);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast-notification');
+            const toastMsg = document.getElementById('toast-msg');
+            toastMsg.innerText = message;
+
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 2500);
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+    </script>
+</body>
+</html>
